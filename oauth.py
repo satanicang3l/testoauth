@@ -105,52 +105,23 @@ Currently supported auth flows:
                 if self.activated == False:
                     return
                 
-                with self.tokenLock:
-                    
-                    # Add current token to request
-                    messageInfo = self.setToken(messageInfo)
-                
-                # Analyse request
-                requestInfo = self._helpers.analyzeRequest(messageInfo)
-                
-                # Get request headers
-                headers = requestInfo.getHeaders()
-                
                 # Check if current token expired
-                expired = self.checkExpired(headers)
+                expired = self.checkExpired(messageInfo)
                 
                 if self.debugMode:
                     self.writeLog(self.debugRequest % (self._helpers.bytesToString(messageInfo.getRequest())))
                 
                 if expired:
-                    
                     self.writeLog("Token expired.")
-                    
-                    # Get request body
-                    reqBody = messageInfo.getRequest()[requestInfo.getBodyOffset():]
-                    
-                    # Remove expired header
-                    headerToDelete = ''
-                    for header in headers:
-                        if self.txtCustomHeader.text in header:
-                            headerToDelete = header
-                            break
-                    try:
-                        headers.remove(headerToDelete)
-                    except:
-                        pass
                     
                     # Make token request
                     try:
-                        
                         # Check parameters
                         grantType = self.checkParameters(self.cmbGrantType.getSelectedItem())
                         
                         # If parameters ok
                         if grantType != False:
-                            
                             while True:
-                                
                                 # Check if activated
                                 if self.activated == False:
                                     return
@@ -158,7 +129,12 @@ Currently supported auth flows:
                                 self.writeLog("Requesting new token...")
                                 
                                 # Init TokenRequest
-                                tokenRequest = self.TokenRequest(self.debugMode, self.debugRequest, self.debugResponse, self.callbacks, self._helpers, self.txtLog, self.logLock, self.currentToken, self.tokenLock, self.expiresIn, grantType, self.cmbClientAuth.getSelectedItem(), self.txtTokenURL.text, self.txtPort.text, self.cmbProtocol.getSelectedItem().split(":")[0], self.cmbHttpVersion.getSelectedItem().split(":")[0], self.txtUsername.text, self.txtPassword.text, self.txtClientID.text, self.txtClientSecret.text, self.txtScope.text)
+                                tokenRequest = self.TokenRequest(self.debugMode, self.debugRequest, self.debugResponse, 
+                                    self.callbacks, self._helpers, self.txtLog, self.logLock, self.currentToken, 
+                                    self.tokenLock, self.expiresIn, grantType, self.cmbClientAuth.getSelectedItem(), 
+                                    self.txtTokenURL.text, self.txtPort.text, self.cmbProtocol.getSelectedItem().split(":")[0], 
+                                    self.cmbHttpVersion.getSelectedItem().split(":")[0], self.txtUsername.text, 
+                                    self.txtPassword.text, self.txtClientID.text, self.txtClientSecret.text, self.txtScope.text)
                                 
                                 # New thread
                                 t = Thread(target=tokenRequest.go, args=[])
@@ -178,13 +154,8 @@ Currently supported auth flows:
                             self.writeLog("Something went wrong!")
                             return
                         
-                        # Add new token to headers
-                        with self.tokenLock:
-                            headers.add(self.txtCustomHeader.text + ' ' + self.currentToken[0])
-                            
-                        # Build message
-                        message = self._helpers.buildHttpMessage(headers, reqBody)
-                        messageInfo.setRequest(message)
+                        # Now add the new token to the request body
+                        messageInfo = self.setToken(messageInfo)
                         
                         self.writeLog("Token updated!")
                         
@@ -195,7 +166,9 @@ Currently supported auth flows:
                         print str(e)
                         self.writeLog("Failed. See Extender output for details.")
                 else:
-                    return
+                    # If token not expired, still need to ensure it's in the body
+                    with self.tokenLock:
+                        messageInfo = self.setToken(messageInfo)
     
     ################################################
     # CLASSES
