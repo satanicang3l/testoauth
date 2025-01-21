@@ -502,30 +502,36 @@ Currently supported auth flows:
         # Get request info
         requestInfo = self._helpers.analyzeRequest(messageInfo)
         
-        # Get headers and body
-        headers = requestInfo.getHeaders()
-        body = self._helpers.bytesToString(messageInfo.getRequest()[requestInfo.getBodyOffset():])
+        # Get body bytes and convert to string
+        bodyBytes = messageInfo.getRequest()[requestInfo.getBodyOffset():]
+        body = self._helpers.bytesToString(bodyBytes)
         
         # Look for existing Authorization tag
         authStartTag = "<cus:Authorization>Bearer "
         authEndTag = "</cus:Authorization>"
         securityEndTag = "</wsse:Security>"
         
-        # Remove existing Authorization if present
-        if authStartTag in body and authEndTag in body:
-            startPos = body.index(authStartTag)
-            endPos = body.index(authEndTag) + len(authEndTag)
-            body = body[:startPos] + body[endPos:]
-            
-        # Insert new Authorization after </wsse:Security>
         if securityEndTag in body:
+            # Remove existing Authorization if present
+            if authStartTag in body and authEndTag in body:
+                startPos = body.index(authStartTag)
+                endPos = body.index(authEndTag) + len(authEndTag)
+                body = body[:startPos] + body[endPos:]
+            
+            # Insert new Authorization after </wsse:Security>
             insertPos = body.index(securityEndTag) + len(securityEndTag)
             newAuth = authStartTag + self.currentToken[0] + authEndTag
             body = body[:insertPos] + newAuth + body[insertPos:]
-        
-        # Build message with modified body
-        message = self._helpers.buildHttpMessage(headers, self._helpers.stringToBytes(body))
-        messageInfo.setRequest(message)
+            
+            # Convert modified body back to bytes
+            modifiedBodyBytes = self._helpers.stringToBytes(body)
+            
+            # Build new message with original headers and modified body
+            message = self._helpers.buildHttpMessage(requestInfo.getHeaders(), modifiedBodyBytes)
+            messageInfo.setRequest(message)
+            
+            if self.debugMode:
+                self.writeLog("Token added to body: " + newAuth)
         
         return messageInfo
     
@@ -536,17 +542,17 @@ Currently supported auth flows:
         """
         Check if current token is expired by examining the token in the request body
         """
-        # Get request info
-        requestInfo = self._helpers.analyzeRequest(headers)
-        
-        # Get body
-        body = self._helpers.bytesToString(requestInfo.getRequest()[requestInfo.getBodyOffset():])
-        
-        # Look for token in body
-        authStartTag = "<cus:Authorization>Bearer "
-        authEndTag = "</cus:Authorization>"
-        
         try:
+            # Get the full request from the headers (which is actually the messageInfo)
+            requestInfo = self._helpers.analyzeRequest(headers)
+            
+            # Get request body
+            body = self._helpers.bytesToString(headers.getRequest()[requestInfo.getBodyOffset():])
+            
+            # Look for token in body
+            authStartTag = "<cus:Authorization>Bearer "
+            authEndTag = "</cus:Authorization>"
+            
             if authStartTag in body and authEndTag in body:
                 # Extract token
                 startPos = body.index(authStartTag) + len(authStartTag)
@@ -578,12 +584,12 @@ Currently supported auth flows:
                     # Fallback to 'expires_in' value
                     if (int(time.time()) - self.expiresIn[0]) >= -3:
                         return True
-        except:
-            # If any error occurs checking the body token, fallback to expires_in
-            if (int(time.time()) - self.expiresIn[0]) >= -3:
+            else:
+                # If no token found in body, consider it expired
                 return True
-        
-        return False
+                
+        except:
+            # If any error occurs checking the body
     
 
     ################################################
